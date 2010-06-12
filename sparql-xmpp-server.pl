@@ -13,40 +13,40 @@ my $password = shift;
 local $KB = $ENV{'USER'}."foaf";
 local $OPT = "-f json";
 
+$Con->AddNamespace(
+	ns =>"http://www.w3.org/2005/09/xmpp-sparql-binding",
+	tag =>"sparql",
+	xpath => { Query => { path => "query/text()" },
+	           Result => { path => "result/text()" } }
+);
+
+$Con->SetCallBacks(
+	#send=>\&sendCallBack,
+	#receive=>\&receiveCallBack,
+	message=>\&messageCallBack,
+	iq=>\&handleTheIQTag
+);
+
 my($user, $host) = $CID =~ /(.*)@(.*)/;
 $status = $Con->Connect(hostname => $host);
 my @ret = $Con->AuthSend(
 	username => $user,
 	password => $password,
-	resource => $user
+	resource => 'sparql'
 );
+
+system("dns-sd -R $CID _sparqlxmpp._tcp local 5222 address=$CID &");
 
 if ($ret[0] ne "ok") {
 	die "Failed to authenticate to server: $ret[1]";
 }
 
-# these are really low level
-$Con->SetCallBacks(
-	send=>\&sendCallBack,
-	receive=>\&receiveCallBack,
-	message=>\&messageCallBack,
-	iq=>\&handleTheIQTag
-);
-
 # higher level callbacks
-$Con->SetXPathCallBacks(
-	#"/message[\@type='chat']"=>\&messageChatCB,
-	"/message[\@type='chat']"=>\&otherMessageChatCB,
-);
+#$Con->SetXPathCallBacks(
+#	"/message[\@type='chat']"=>\&otherMessageChatCB,
+#);
 
-$Con->AddNamespace(
-	ns =>"http://www.w3.org/2005/09/xmpp-sparql-binding",
-	tag =>"query",
-	xpath => { SPARQL => { path => "text()" } }
-);
-
-my $Pres = new Net::XMPP::Presence();
-
+#my $Pres = new Net::XMPP::Presence();
 $Con->RosterGet();
 $Con->PresenceSend();
 
@@ -88,17 +88,6 @@ sub otherMessageChatCB {
 		my $query = $msg;
 
 		sendtextres($from, $to, $id, $query);
-
-#		my $res = `4s-query $OPT '$KB' '$query'`;
-#		$res =~ s/\s+/ /g;
-#
-#		$ret = $Con->MessageSend(
-#			to => $to,
-#			subject => "Results",
-#			body => $res,
-#			thread => "results",
-#			priority => 10
-#		);
 	}
 }
 
@@ -117,7 +106,7 @@ sub sendCallBack {
 sub receiveCallBack  {
 	my ($id, $msg) = @_;
 
-	print $msg."\n";
+	print "RECV $id: ".$msg."\n";
 }
 
 sub messageCallBack  {
@@ -127,20 +116,18 @@ sub messageCallBack  {
 sub handleTheIQTag  {
 	my($id, $iq) = @_;
 
-	my $to = $iq->GetFrom();
-	my $from = $iq->GetTo();
-	my $id = $iq->GetID();
-print("GOT IQ\n");
-return;
-	my $query = $iq->GetQuery()->GetSPARQL();
 	my $namespace = $iq->GetQueryXMLNS();
-
-	print "Got $namespace query\n";
-	if (!$query) {
-		return;
+	if ($namespace eq 'http://www.w3.org/2005/09/xmpp-sparql-binding') {
+		my $from = $iq->GetFrom();
+		my $query = $iq->GetQuery()->GetQuery();
+		print("GOT SPARQL IQ $id $query from $from\n");
+		if (!$query) {
+			return;
+		}
+		&sendres($iq, $to, $from, $id, $query);
+	} else {
+		print("GOT $namespace $IQ from $from\n");
 	}
-
-	&sendres($from, $to, $id, $query);
 }
 
 sub sendtextres {
@@ -161,16 +148,17 @@ EOB
 }
 
 sub sendres {
-	my($from, $to, $id, $query) = @_;
+	my($qIQ, $from, $to, $id, $query) = @_;
 
 	my $qres = `4s-query $OPT '$KB' '$query'`;
-$res = <<EOB;
-<iq from='$from' id='$id' to='$to' type='result'>
-<query-result xmlns='http://www.w3.org/2005/09/xmpp-sparql-binding'>
-<meta comments='content supplied programmatically'/>
-$qres
-</query-result>
-</iq>
-EOB
-	$Con->Send($res);
+        my $IQ = $qIQ->Reply(type=>"result");
+	$IQ->RemoveChild();
+        my $IQSparql = $IQ->NewChild('http://www.w3.org/2005/09/xmpp-sparql-binding');
+        $IQSparql->SetResult($qres);
+
+	$Con->Send($IQ);
+}
+
+sub debugargs {
+	print("DEBUG: ".join(" ", @_)."\n");
 }
