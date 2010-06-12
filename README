@@ -1,0 +1,7 @@
+You will need to install Net::XMPP via CPAN.
+
+Create a 4store KB called $USER."foaf".
+
+run "./sparql-xmpp-server.pl user@jabberhost password" to start the server.
+
+It will repspond to normal test queries that include "SELECT" or "CONSTRUCT", return type is JSON or Turtle.
