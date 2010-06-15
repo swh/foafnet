@@ -13,6 +13,11 @@ my $password = shift;
 local $KB = $ENV{'USER'}."foaf";
 local $OPT = "-f json";
 
+$SIG{HUP} = \&stop;
+$SIG{KILL} = \&stop;
+$SIG{TERM} = \&stop;
+$SIG{INT} = \&stop;
+
 $Con->AddNamespace(
 	ns =>"http://www.w3.org/2005/09/xmpp-sparql-binding",
 	tag =>"sparql",
@@ -35,16 +40,19 @@ my @ret = $Con->AuthSend(
 	resource => 'sparql'
 );
 
-system("dns-sd -R $CID _sparqlxmpp._tcp local 5222 address=$CID &");
+my $child = fork();
+if ($child == 0) {
+	exec("dns-sd", "-R", $CID, "_sparqlxmpp._tcp", "local", "5222", "address=$CID");
+}
 
 if ($ret[0] ne "ok") {
 	die "Failed to authenticate to server: $ret[1]";
 }
 
 # higher level callbacks
-#$Con->SetXPathCallBacks(
-#	"/message[\@type='chat']"=>\&otherMessageChatCB,
-#);
+$Con->SetXPathCallBacks(
+	"/message[\@type='chat']"=>\&otherMessageChatCB,
+);
 
 #my $Pres = new Net::XMPP::Presence();
 $Con->RosterGet();
@@ -71,7 +79,7 @@ while (!$quit) {
 	}
 }
 
-$Con->Disconnect();
+&stop;
 
 sub otherMessageChatCB {
 	my($i, $m) = @_;
@@ -161,4 +169,11 @@ sub sendres {
 
 sub debugargs {
 	print("DEBUG: ".join(" ", @_)."\n");
+}
+
+sub stop {
+	kill(9, $child);
+	$Con->Disconnect();
+
+	exit;
 }

@@ -27,7 +27,18 @@ $Con->SetCallBacks(
 );
 
 my($user, $host) = $CID =~ /(.*)@(.*)/;
-$status = $Con->Connect(hostname => $host);
+if (!$user || !$host) {
+	die "Failed to get user and host from CID";
+}
+
+my $status = $Con->Connect(hostname => $host);
+if (!defined($status))
+{
+    print "Jabber server $host is down or connection was not allowed.\n";
+    print "        ($!)\n";
+    exit(1);
+}
+
 my @ret = $Con->AuthSend(
 	username => $user,
 	password => $password,
@@ -35,7 +46,7 @@ my @ret = $Con->AuthSend(
 );
 
 if ($ret[0] ne "ok") {
-	die "Failed to authenticate to server: $ret[1]";
+	die "Failed to authenticate to $user @ $host, $ret[0]: $ret[1]";
 }
 
 $CID .= '/sparql';
@@ -80,6 +91,11 @@ sub sendquery {
 	$IQSparql->SetQuery($query);
 
 	my $answer = $Con->SendAndReceiveWithID($IQ);
+	if (!$answer) {
+		print("query response failed\n");
+
+		return "";
+	}
 
 	return $answer->GetQuery()->GetResult();
 }
